@@ -322,6 +322,85 @@ class DataParallelPPOActor(BasePPOActor):
 
                     loss_token_mask = None # Default to None
 
+                    if self.config.use_vppo_on_entropy and self.config.use_vppo_on_perception:
+                            
+                            # --- A. 计算两个基础得分 ---
+                            entropy_score = entropy.clone()
+                            # 将padding设为0，以便稳定地进行归一化
+                            entropy_score[~response_mask] = 0.0
+
+                            aug_log_probs = model_inputs["aug_log_probs"]
+                            old_log_probs = model_inputs["old_log_probs"]
+                            log_probs_diff = (aug_log_probs - old_log_probs).clamp(-20.0, 20.0)
+                            low_var_kl = (log_probs_diff.exp() - log_probs_diff - 1).contiguous()
+                            low_var_kl = torch.clamp(low_var_kl, min=0.0, max=10.0)
+                            
+                            kl_score = low_var_kl.clone()
+                            # 将padding设为0，以便稳定地进行归一化
+                            kl_score[~response_mask] = 0.0
+
+                            # --- B. 在整个微批次的有效token上进行归一化 ---
+                            valid_entropy = entropy_score[response_mask]
+                            valid_kl = kl_score[response_mask]
+                            eps = 1e-6 # 防止除以零
+                            
+                            norm_entropy_tensor = torch.zeros_like(entropy_score)
+                            if valid_entropy.numel() > 0:
+                                norm_entropy = (valid_entropy - valid_entropy.min()) / (valid_entropy.max() - valid_entropy.min() + eps)
+                                norm_entropy_tensor[response_mask] = norm_entropy
+                            
+                            norm_kl_tensor = torch.zeros_like(kl_score)
+                            if valid_kl.numel() > 0:
+                                norm_kl = (valid_kl - valid_kl.min()) / (valid_kl.max() - valid_kl.min() + eps)
+                                norm_kl_tensor[response_mask] = norm_kl
+                            
+                            # --- C. 计算组合得分 ---
+                            # !! 注意: 您需要添加这些配置项 (getattr 提供了默认值 0.5)
+                            w_entropy = getattr(self.config, "vppo_entropy_weight", 0.5) 
+                            w_kl = getattr(self.config, "vppo_kl_weight", 0.5)
+                            
+                            combined_score = (w_entropy * norm_entropy_tensor) + (w_kl * norm_kl_tensor)
+                            
+                            # --- D. 在组合得分上进行Top-P掩码 ---
+                            # 将padding设为-inf以便正确排序
+                            combined_score_for_sort = combined_score.clone()
+                            combined_score_for_sort[~response_mask] = -float('inf')
+
+                            # !! 注意: 您需要一个新的top-p配置项 (getattr 提供了默认值 0.1)
+                            top_p = getattr(self.config, "top_p_combined_tokens", 0.4) 
+                            
+                            num_valid_tokens = response_mask.sum(dim=1)
+                            k = torch.ceil(num_valid_tokens * top_p).int()
+
+                            sorted_vals, sorted_indices = torch.sort(combined_score_for_sort, dim=1, descending=True)
+                            
+                            range_tensor = torch.arange(combined_score.size(1), device=combined_score.device).expand_as(combined_score)
+                            rank_mask = range_tensor < k.unsqueeze(1)
+
+                            top_p_mask = torch.zeros_like(combined_score, dtype=torch.bool)
+                            top_p_mask.scatter_(1, sorted_indices, rank_mask)
+                            
+                            # 最终掩码必须同时尊重原始的 response_mask
+                            loss_token_mask = (top_p_mask.bool() & response_mask).to(entropy.dtype)
+
+                            # --- E. 日志记录 ---
+                            with torch.no_grad():
+                                num_total_valid_tokens = response_mask.sum()
+                                num_selected_tokens = loss_token_mask.sum()
+                                if num_total_valid_tokens > 0:
+                                    metrics["actor/combined_token_fraction"].append((num_selected_tokens / num_total_valid_tokens).item())
+                                    
+                                    selected_scores = torch.masked_select(combined_score, loss_token_mask.bool())
+                                    if selected_scores.numel() > 0:
+                                        metrics["actor/combined_score_mean_selected"].append(selected_scores.mean().item())
+                                    
+                                    rejected_mask = response_mask & ~loss_token_mask.bool()
+                                    if rejected_mask.any():
+                                        rejected_scores = torch.masked_select(combined_score, rejected_mask)
+                                        if rejected_scores.numel() > 0:
+                                            metrics["actor/combined_score_mean_rejected"].append(rejected_scores.mean().item())
+                    
+                    
                     if self.config.use_vppo_on_entropy:
                         # Use vppo based on entropy at the response level.
                         # For each response, select the top p% of tokens with the highest entropy.

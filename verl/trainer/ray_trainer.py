@@ -516,7 +516,28 @@ class RayPPOTrainer:
             # filter group
             if self.config.algorithm.online_filtering:
                 reward_tensor, reward_metrics = ray.get(self.reward_fn.compute_reward.remote(new_batch))
-                new_batch.batch["token_level_scores"] = reward_tensor
+                # new_batch.batch["token_level_scores"] = reward_tensor
+                
+                import copy
+
+                # 1. 显式地克隆这个锁定的 TensorDict。
+                #    .clone() 是一个只读操作，这一定会成功。
+                #    (recurse=False 表示浅克隆，通常足够且更快)
+                unlocked_batch_clone = new_batch.batch.clone(recurse=False)
+
+                # 2. 现在 unlocked_batch_clone 是一个全新的、未锁定的对象。
+                #    我们可以安全地用标准方式给它添加新键。
+                unlocked_batch_clone["token_level_scores"] = reward_tensor
+
+                # 3. 和之前的方案一样，创建一个 DataProto 父对象的副本。
+                new_batch_proto_copy = copy.copy(new_batch)
+
+                # 4. 将父副本的 .batch 属性指向我们新创建的、已更新的克隆体。
+                new_batch_proto_copy.batch = unlocked_batch_clone
+
+                # 5. 将 new_batch 变量指向这个最终的、全新的对象。
+                new_batch = new_batch_proto_copy
+                
                 for k, v in reward_metrics.items():
                     all_metrics[k].extend(v)
 

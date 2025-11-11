@@ -77,30 +77,23 @@ from typing import List, Dict, Any
 
 def compute_score_wo_format_length_limit(
     reward_inputs: List[Dict[str, Any]],
-    L_MAX_HARD_LIMIT: int = 2048  # 预设的 L_max 硬上限 (可配置)
+    L_MAX_HARD_LIMIT: int = 2048,  # 预设的 L_max 硬上限
+    ALPHA_TOLERANCE: float = 0.5 # 动态容忍区比例 (例如 15%)
 ) -> List[Dict[str, float]]:
     """
-    计算包含 "动态安全区SOP" (方案五) 的奖励分数。
+    计算包含 "动态容忍区SOP" (方案六) 的奖励分数。
+    这是一个更 "弱" 的长度限制。
     """
     if not isinstance(reward_inputs, list):
         raise ValueError("Please use `reward_type=batch` for math reward function.")
 
-    # --- Pass 1: 计算准确率 (acc) 和长度 (|y|) ---
     
     intermediate_results = []
     correct_lengths = []
 
     for reward_input in reward_inputs:
         original_response = reward_input["response"]
-        
-        # 1. 计算 |y| (长度)
-        # 注意: 这里使用 *原始* 响应的 *字符* 长度。
-        # 如果 |y| 应该代表 Token 数量, 你需要从 reward_input 中获取
-        # (例如: response_length = reward_input["num_tokens"])
-        response_length = len(original_response)
-
-        # 2. 计算 acc
-        # (我们仍然使用预处理过的 response 来计算准确率)
+        response_length = len(original_response) # |y|
         processed_response = re.sub(r"\s*(<|>|/)\s*", r"\1", original_response)
         accuracy_score = accuracy_reward(processed_response, reward_input["ground_truth"])
 
@@ -109,59 +102,49 @@ def compute_score_wo_format_length_limit(
             "length": response_length
         })
 
-        # 3. 收集所有 acc=1 样本的长度
-        # (假设 acc=1 时, accuracy_score == 1.0)
         if accuracy_score == 1.0:
             correct_lengths.append(response_length)
 
-    # --- 计算 L_mean (动态安全区 L_safe) ---
     
     L_mean = 0.0
-    has_correct_samples = bool(correct_lengths) # 检查 batch 中是否有正确样本
+    has_correct_samples = bool(correct_lengths)
 
     if has_correct_samples:
         L_mean = sum(correct_lengths) / len(correct_lengths)
 
-    # --- Pass 2: 计算 R_length 和最终得分 ---
+    L_safe_dynamic = L_mean * (1.0 + ALPHA_TOLERANCE)
+
     
     final_scores = []
     for item in intermediate_results:
         accuracy = item["accuracy"]
         length = item["length"]
         
-        R_length = 0.0  # 默认惩罚为 0
+        R_length = 0.0
 
         if not has_correct_samples:
-            # 边缘情况 1: Batch中没有 acc=1 的样本，不进行长度惩罚
             R_length = 0.0
-        elif length <= L_mean:
-            # 安全区: 长度小于等于均值 (L_safe)，不惩罚
+        elif length <= L_safe_dynamic:
             R_length = 0.0
         else:
-            # 惩罚区: 长度 > L_mean
             
-            if L_mean >= L_MAX_HARD_LIMIT:
-                # 边缘情况 2: L_mean 已经超过(或等于)硬上限
-                # 任何比 L_mean 更长的都直接判 -1
+            if L_safe_dynamic >= L_MAX_HARD_LIMIT:
                 R_length = -1.0
             else:
-                # 正常软惩罚计算
-                # (L_max - L_safe)
-                denominator = L_MAX_HARD_LIMIT - L_mean
+                denominator = L_MAX_HARD_LIMIT - L_safe_dynamic
                 
-                # (L_safe - |y|) / (L_max - L_safe)
-                penalty = (L_mean - length) / denominator
+                penalty = (L_safe_dynamic - length) / denominator
                 
-                # 确保惩罚最大(小)为 -1
                 R_length = max(penalty, -1.0)
         
-        # 最终得分 = 规则奖励 + 长度惩罚
         overall_score = accuracy + R_length
         
         final_scores.append({
             "overall": overall_score,
             "accuracy": accuracy,
-            "R_length": R_length  # 额外返回 R_length, 便于调试
+            "R_length": R_length,
+            "L_mean": L_mean, 
+            "L_safe_dynamic": L_safe_dynamic
         })
 
     return final_scores

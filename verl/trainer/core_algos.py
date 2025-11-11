@@ -344,7 +344,8 @@ def compute_policy_loss(
     clip_ratio_dual: float,
     loss_avg_mode: Literal["token", "seq"],
     entropy: torch.Tensor,
-) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    loss_token_mask: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the clipped policy objective and related metrics for PPO.
 
     Adapted from https://github.com/huggingface/trl/blob/v0.15.0/trl/trainer/ppo_trainer.py#L568
@@ -406,9 +407,15 @@ def compute_policy_loss(
     final_pg_loss = torch.where(advantages < 0, clipped_pg_loss_lower, clipped_pg_loss_higher)
     metrics["pg_clipfrac_lower"] = (clipped_pg_loss_higher > pg_loss3).float() * (advantages < 0).float()
 
+    if loss_token_mask is not None:
+        detached_loss_token_mask = loss_token_mask.detach()
+        final_pg_loss = final_pg_loss * detached_loss_token_mask
+
     final_pg_loss = average_loss(final_pg_loss, response_mask, mode=loss_avg_mode)
     metrics = {k: VF.masked_mean(v, response_mask).detach().item() for k, v in metrics.items()}
     return final_pg_loss, metrics
+
+
 
 
 def compute_value_loss(

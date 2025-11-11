@@ -127,6 +127,13 @@ class ActorConfig:
 
     use_advantage_shaping: bool = False
     advantage_scaling_min: float = 0.8
+    
+    use_entopy_advantage_shaping: bool = False
+    entropy_alpha: float = 0.4
+    entropy_kappa: float = 2.0
+    """use entropy advantage shaping for training"""
+    
+    
 
 @dataclass
 class RefConfig:

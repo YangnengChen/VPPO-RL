@@ -93,7 +93,7 @@ class Runner:
         trainer.init_workers()
         trainer.fit()
 
-
+import os
 def main():
     cli_args = OmegaConf.from_cli()
     default_config = OmegaConf.structured(PPOConfig())
@@ -106,7 +106,8 @@ def main():
     ppo_config = OmegaConf.merge(default_config, cli_args)
     ppo_config: PPOConfig = OmegaConf.to_object(ppo_config)
     ppo_config.deep_post_init()
-
+    temp_dir = os.path.join("~", "ray_temp")
+    os.makedirs(temp_dir, exist_ok=True) # 确保目录存在
     if not ray.is_initialized():
         runtime_env = {
             "env_vars": {
@@ -118,7 +119,7 @@ def main():
                 "PYTHONUNBUFFERED": "1",
             }
         }
-        ray.init(runtime_env=runtime_env)
+        ray.init(runtime_env=runtime_env,_temp_dir=temp_dir)
 
     runner = Runner.remote()
     ray.get(runner.run.remote(ppo_config))

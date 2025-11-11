@@ -25,7 +25,7 @@ advantage_scaling_min=0.9
 entropy_penalty_coef=0.06
 
 
-EXP_NAME="perc${top_p_perception_tokens}_advsc${advantage_scaling_min}_pen${entropy_penalty_coef}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}"
+EXP_NAME="pen${entropy_penalty_coef}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}"
 
 CONGI_FILE="examples/configs/config.yaml"
 TRAIN_FILE="/data3/cyn/datasets/PAPOGalaxy/PAPO_ViRL39K_train/"
@@ -52,8 +52,8 @@ CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
     trainer.project_name="7b_vppo" \
     trainer.logger=['console','wandb'] \
     algorithm.use_vppo_on_entropy=False \
-    algorithm.use_vppo_on_perception=True \
-    algorithm.use_advantage_shaping=True \
+    algorithm.use_vppo_on_perception=False \
+    algorithm.use_advantage_shaping=False \
     algorithm.use_entropy_penalty=True \
     algorithm.top_p_perception_tokens=${top_p_perception_tokens} \
     algorithm.entropy_penalty_coef=${entropy_penalty_coef} \

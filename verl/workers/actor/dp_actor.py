@@ -142,19 +142,31 @@ class DataParallelPPOActor(BasePPOActor):
             )
             log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
-            if getattr(self.config, 'use_vppo_on_entropy', False):
-                dist = Categorical(logits=logits_rmpad)
-                entropy = dist.entropy()
+            # if getattr(self.config, 'use_vppo_on_entropy', False):
+            #     dist = Categorical(logits=logits_rmpad)
+            #     entropy = dist.entropy()
 
-                if self.config.ulysses_size > 1:
-                    entropy = gather_outputs_and_unpad(entropy, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+            #     if self.config.ulysses_size > 1:
+            #         entropy = gather_outputs_and_unpad(entropy, gather_dim=0, unpad_dim=0, padding_size=pad_size)
 
-                full_entropy = pad_input(
-                    hidden_states=entropy.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
-                )
-                entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
-            else:
-                entropy = torch.zeros_like(log_probs)
+            #     full_entropy = pad_input(
+            #         hidden_states=entropy.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+            #     )
+            #     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
+            # else:
+            #     entropy = torch.zeros_like(log_probs)
+            
+            dist = Categorical(logits=logits_rmpad)
+            entropy = dist.entropy()
+
+            if self.config.ulysses_size > 1:
+                entropy = gather_outputs_and_unpad(entropy, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+
+            full_entropy = pad_input(
+                hidden_states=entropy.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+            )
+            entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
+
         else:
             output = self.actor_module(
                 input_ids=input_ids,
@@ -168,11 +180,14 @@ class DataParallelPPOActor(BasePPOActor):
             logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
             log_probs = self.log_probs_from_logits(logits, responses)  # (bsz, response_length)
 
-            if getattr(self.config, 'use_vppo_on_entropy', False):
-                dist = Categorical(logits=logits)
-                entropy = dist.entropy()
-            else:
-                entropy = torch.zeros_like(log_probs)
+            # if getattr(self.config, 'use_vppo_on_entropy', False):
+            #     dist = Categorical(logits=logits)
+            #     entropy = dist.entropy()
+            # else:
+            #     entropy = torch.zeros_like(log_probs)
+            dist = Categorical(logits=logits)
+            entropy = dist.entropy()
+            
 
         # Use vppo based on entropy: Return a dictionary
         return {"log_probs": log_probs, "entropy": entropy}
@@ -319,6 +334,7 @@ class DataParallelPPOActor(BasePPOActor):
                     output = self._forward_micro_batch(model_inputs, temperature=temperature)
                     log_probs = output['log_probs']
                     entropy = output['entropy']
+                    entropy_loss = average_loss(entropy, response_mask, mode=self.config.loss_avg_mode)   # estimator of entropy loss
 
                     loss_token_mask = None # Default to None
 
@@ -533,6 +549,10 @@ class DataParallelPPOActor(BasePPOActor):
 
                             # Apply the final scaling factor to the advantages.
                             advantages = advantages * scaling_factor.unsqueeze(1)
+                            
+                    if self.config.use_entopy_advantage_shaping:
+                        
+                        advantages += advantages * torch.min(self.config.entropy_alpha * entropy.detach(), advantages.abs() / self.config.entropy_kappa)
 
 
                     pg_loss, pg_metrics = compute_policy_loss(
@@ -544,7 +564,8 @@ class DataParallelPPOActor(BasePPOActor):
                         clip_ratio_high=self.config.clip_ratio_high,
                         clip_ratio_dual=self.config.clip_ratio_dual,
                         loss_avg_mode=self.config.loss_avg_mode,
-                        loss_token_mask=loss_token_mask
+                        loss_token_mask=loss_token_mask,
+                        entropy=entropy,
                     )
                     if self.config.use_kl_loss and "ref_log_probs" in model_inputs:
                         ref_log_probs = model_inputs["ref_log_probs"]

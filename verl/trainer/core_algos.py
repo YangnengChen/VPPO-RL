@@ -343,8 +343,8 @@ def compute_policy_loss(
     clip_ratio_high: float,
     clip_ratio_dual: float,
     loss_avg_mode: Literal["token", "seq"],
-    loss_token_mask: Optional[torch.Tensor] = None,
-) -> Tuple[torch.Tensor, Dict[str, float]]:
+    entropy: torch.Tensor,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """Compute the clipped policy objective and related metrics for PPO.
 
     Adapted from https://github.com/huggingface/trl/blob/v0.15.0/trl/trainer/ppo_trainer.py#L568
@@ -394,7 +394,7 @@ def compute_policy_loss(
     # pg metrics
     metrics = {"ppo_kl": -negative_approx_kl}
     # use negative log probs as an estimator of entropy loss
-    metrics["entropy_loss"] = average_loss(-log_probs, response_mask, mode=loss_avg_mode)
+    metrics["entropy_loss"] = average_loss(entropy, response_mask, mode=loss_avg_mode)
 
     pg_loss = -advantages * ratio  # -ratio * A
     pg_loss2 = -advantages * clipped_ratio  # -clip(ratio, 1-clip_low, 1+clip_high) * A
@@ -405,10 +405,6 @@ def compute_policy_loss(
     clipped_pg_loss_lower = torch.min(clipped_pg_loss_higher, pg_loss3)  # clip if pg_loss > pg_loss3 and adv < 0
     final_pg_loss = torch.where(advantages < 0, clipped_pg_loss_lower, clipped_pg_loss_higher)
     metrics["pg_clipfrac_lower"] = (clipped_pg_loss_higher > pg_loss3).float() * (advantages < 0).float()
-
-    if loss_token_mask is not None:
-        detached_loss_token_mask = loss_token_mask.detach()
-        final_pg_loss = final_pg_loss * detached_loss_token_mask
 
     final_pg_loss = average_loss(final_pg_loss, response_mask, mode=loss_avg_mode)
     metrics = {k: VF.masked_mean(v, response_mask).detach().item() for k, v in metrics.items()}

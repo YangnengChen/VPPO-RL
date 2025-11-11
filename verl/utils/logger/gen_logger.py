@@ -41,8 +41,41 @@ class ConsoleGenerationLogger(GenerationLogger):
             print(f"[prompt] {inp}\n[output] {out}\n[ground_truth] {lab}\n[score] {score}\n")
 
 
+# @dataclass
+# class WandbGenerationLogger(GenerationLogger):
+#     def log(self, samples: List[Tuple[str, str, str, float]], step: int) -> None:
+#         # Create column names for all samples
+#         columns = ["step"] + sum(
+#             [[f"input_{i + 1}", f"output_{i + 1}", f"label_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))],
+#             [],
+#         )
+
+#         if not hasattr(self, "validation_table"):
+#             # Initialize the table on first call
+#             self.validation_table = wandb.Table(columns=columns)
+
+#         # Create a new table with same columns and existing data
+#         # Workaround for https://github.com/wandb/wandb/issues/2981#issuecomment-1997445737
+#         new_table = wandb.Table(columns=columns, data=self.validation_table.data)
+
+#         # Add new row with all data
+#         row_data = [step]
+#         for sample in samples:
+#             row_data.extend(sample)
+
+#         new_table.add_data(*row_data)
+#         wandb.log({"val/generations": new_table}, step=step)
+#         self.validation_table = new_table
+
+import time
 @dataclass
 class WandbGenerationLogger(GenerationLogger):
+    """
+    A Wandb Logger with retry logic.
+    """
+    max_retries: int = 5     # Maximum number of retries
+    retry_delay: int = 3     # Delay between retries (in seconds)
+
     def log(self, samples: List[Tuple[str, str, str, float]], step: int) -> None:
         # Create column names for all samples
         columns = ["step"] + sum(
@@ -64,7 +97,29 @@ class WandbGenerationLogger(GenerationLogger):
             row_data.extend(sample)
 
         new_table.add_data(*row_data)
-        wandb.log({"val/generations": new_table}, step=step)
+
+        # --- Start: Added Try-Except and Retry Logic ---
+        logged_successfully = False
+        for attempt in range(self.max_retries):
+            try:
+                # Attempt to log the table
+                wandb.log({"val/generations": new_table}, step=step)
+                logged_successfully = True
+                # If successful, break the loop
+                break 
+            except Exception as e:
+                # Catch other unexpected errors
+                print(f"Warning: wandb.log encountered an unexpected error (Attempt {attempt + 1}/{self.max_retries}): {e}")
+                if attempt + 1 < self.max_retries:
+                     print(f"Retrying in {self.retry_delay} seconds...")
+                     time.sleep(self.retry_delay)
+        
+        if not logged_successfully:
+            print(f"Error: Failed to log to wandb after {self.max_retries} attempts. Skipping log for step {step}.")
+        # --- End: Retry Logic ---
+
+        # Update the internal table state regardless of logging success
+        # to ensure correct data for the next call (workaround for the W&B issue)
         self.validation_table = new_table
 
 

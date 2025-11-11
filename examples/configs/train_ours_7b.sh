@@ -22,17 +22,25 @@ rollout=8
 
 top_p_perception_tokens=0.4
 advantage_scaling_min=0.9
-entropy_penalty_coef=0.06
+entropy_penalty_coef=0.0
+clip_ratio_high=0.28
+loss_avg_mode=token
 
 
-EXP_NAME="perc${top_p_perception_tokens}_advsc${advantage_scaling_min}_pen${entropy_penalty_coef}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}"
+
+
+
+FORMAT_PROMPT="examples/format_prompt/math_format_perception.jinja"
+
+# REWARD_FUNCTION="examples/reward_function/math.py:compute_score_wo_format"
+REWARD_FUNCTION="examples/reward_function/math.py:compute_score_wo_format_length_limit"
+
+EXP_NAME="length_limit_loss_avg_mode_${loss_avg_mode}_clip_ratio_high${clip_ratio_high}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}"
 
 CONGI_FILE="examples/configs/config.yaml"
 TRAIN_FILE="/data3/cyn/datasets/PAPOGalaxy/PAPO_ViRL39K_train/"
 VAL_FILE="/data3/cyn/datasets/PAPOGalaxy/PAPO_MMK12_test/"
 
-FORMAT_PROMPT="examples/format_prompt/math_format_perception.jinja"
-REWARD_FUNCTION="examples/reward_function/math.py:compute_score_wo_format"
 
 CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
     config=${CONGI_FILE} \
@@ -42,6 +50,7 @@ CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
     data.mini_rollout_batch_size=${MINI_ROLLOUT_BATCH_SIZE} \
     data.format_prompt=${FORMAT_PROMPT} \
     worker.actor.model.model_path=${MODEL_PATH} \
+    worker.actor.loss_avg_mode=${loss_avg_mode} \
     worker.rollout.tensor_parallel_size=1 \
     worker.actor.global_batch_size=${GLOBAL_BATCH_SIZE} \
     trainer.experiment_name=${EXP_NAME} \
@@ -52,12 +61,13 @@ CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
     trainer.project_name="7b_vppo" \
     trainer.logger=['console','wandb'] \
     algorithm.use_vppo_on_entropy=False \
-    algorithm.use_vppo_on_perception=True \
-    algorithm.use_advantage_shaping=True \
-    algorithm.use_entropy_penalty=True \
+    algorithm.use_vppo_on_perception=False \
+    algorithm.use_advantage_shaping=False \
+    algorithm.use_entropy_penalty=False \
     algorithm.top_p_perception_tokens=${top_p_perception_tokens} \
     algorithm.entropy_penalty_coef=${entropy_penalty_coef} \
     algorithm.advantage_scaling_min=${advantage_scaling_min} \
     worker.rollout.n=${rollout} \
     worker.actor.micro_batch_size_per_device_for_experience=16 \
-    worker.actor.micro_batch_size_per_device_for_update=4
+    worker.actor.micro_batch_size_per_device_for_update=4 \
+    worker.actor.clip_ratio_high=${clip_ratio_high} \

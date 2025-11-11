@@ -106,8 +106,8 @@ def main():
     ppo_config = OmegaConf.merge(default_config, cli_args)
     ppo_config: PPOConfig = OmegaConf.to_object(ppo_config)
     ppo_config.deep_post_init()
-    temp_dir = os.path.join("~", "ray_temp")
-    os.makedirs(temp_dir, exist_ok=True) # 确保目录存在
+    temp_dir = os.path.expanduser(os.path.join("~", "ray_temp"))
+    os.makedirs(temp_dir, exist_ok=True) 
     if not ray.is_initialized():
         runtime_env = {
             "env_vars": {

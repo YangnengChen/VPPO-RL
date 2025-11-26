@@ -1,20 +1,38 @@
 #!/bin/bash
 
+echo "Cleaning up Ray environment..."
+
+# 1. Attempt to stop Ray processes
+ray stop --force 2>/dev/null
+
+# 2. Force delete temporary files
+# Defined custom temp directory: ~/ray_temp
+RAY_TEMP_DIR="$HOME/ray_temp"
+
+if [ -d "$RAY_TEMP_DIR" ]; then
+    rm -rf "$RAY_TEMP_DIR"
+    echo "Deleted temporary files in $RAY_TEMP_DIR"
+else
+    echo "Directory $RAY_TEMP_DIR does not exist, skipping deletion."
+fi
+
+echo "Environment cleanup finished. Starting training..."
+
 set -x
 
 export PYTHONUNBUFFERED=1
 export RAY_memory_usage_threshold=0.98
 
-CUDA_IDS=0,1,2,3
-N_GPU=4
+CUDA_IDS=0,1,2,3,4,5,6,7
+N_GPU=8
 
 
-MODEL_PATH=/data3/public/model/Qwen2.5-VL-7B-Instruct/
+MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
 
 TOTAL_EPOCHES=2
 GLOBAL_BATCH_SIZE=128
 ROLLOUT_BATCH_SIZE=384
-MINI_ROLLOUT_BATCH_SIZE=128
+MINI_ROLLOUT_BATCH_SIZE=384
 VAL_BATCH_SIZE=512
 MAX_PROMPT_LENGTH=4096
 rollout=8
@@ -26,7 +44,7 @@ entropy_penalty_coef=0.0
 clip_ratio_high=0.28
 loss_avg_mode=token
 
-L_SAFE_STATIC=600
+L_SAFE_STATIC=400
 use_entopy_advantage_shaping=true
 entropy_alpha=0.4
 entropy_kappa=2.0
@@ -40,8 +58,8 @@ REWARD_FUNCTION="examples/reward_function/math.py:compute_score_wo_format_length
 EXP_NAME="length_limit_${L_SAFE_STATIC}_loss_avg_mode_${loss_avg_mode}_clip_ratio_high${clip_ratio_high}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}_use_entopy_advantage_shaping_${use_entopy_advantage_shaping}_alpha_${entropy_alpha}_kappa_${entropy_kappa}"
 
 CONGI_FILE="examples/configs/config.yaml"
-TRAIN_FILE="/data3/cyn/datasets/PAPOGalaxy/PAPO_ViRL39K_train/"
-VAL_FILE="/data3/cyn/datasets/PAPOGalaxy/PAPO_MMK12_test/"
+TRAIN_FILE="chamber111/VPPO_ViRL39K_train"
+VAL_FILE="chamber111/VPPO_MMK12_validation"
 
 
 CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
@@ -70,8 +88,8 @@ CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
     algorithm.entropy_penalty_coef=${entropy_penalty_coef} \
     algorithm.advantage_scaling_min=${advantage_scaling_min} \
     worker.rollout.n=${rollout} \
-    worker.actor.micro_batch_size_per_device_for_experience=16 \
-    worker.actor.micro_batch_size_per_device_for_update=4 \
+    worker.actor.micro_batch_size_per_device_for_update=2 \
+    worker.actor.micro_batch_size_per_device_for_experience=8 \
     worker.actor.clip_ratio_high=${clip_ratio_high} \
     worker.actor.use_entopy_advantage_shaping=${use_entopy_advantage_shaping} \
     worker.actor.entropy_alpha=${entropy_alpha} \

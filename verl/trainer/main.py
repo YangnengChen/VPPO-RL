@@ -92,8 +92,9 @@ class Runner:
         )
         trainer.init_workers()
         trainer.fit()
-
+import subprocess
 import os
+import shutil
 def main():
     cli_args = OmegaConf.from_cli()
     default_config = OmegaConf.structured(PPOConfig())
@@ -107,7 +108,35 @@ def main():
     ppo_config: PPOConfig = OmegaConf.to_object(ppo_config)
     ppo_config.deep_post_init()
     temp_dir = os.path.expanduser(os.path.join("~", "ray_temp"))
-    os.makedirs(temp_dir, exist_ok=True) 
+    # =================== Auto-Cleanup Logic ===================
+    print(f"Preparing Ray environment. Temp directory: {temp_dir}")
+
+    # 1. Force stop any lingering Ray processes from previous runs.
+    #    This releases file locks and shared memory.
+    #    (Equivalent to `ray stop --force` in bash)
+    try:
+        subprocess.run(
+            ["ray", "stop", "--force"], 
+            check=False, 
+            stdout=subprocess.DEVNULL, 
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as e:
+        print(f"Note: Error while stopping Ray (can be ignored if Ray wasn't running): {e}")
+
+    # 2. Remove the old temporary directory to clear 'dirty' data.
+    if os.path.exists(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+            print("Cleaned up old Ray temporary files.")
+        except OSError as e:
+            print(f"Warning: Could not fully remove temp dir (might be in use): {e}")
+
+    # 3. Recreate the empty directory.
+    os.makedirs(temp_dir, exist_ok=True)
+    # ==========================================================
+    
+    
     if not ray.is_initialized():
         runtime_env = {
             "env_vars": {

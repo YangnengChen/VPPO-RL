@@ -1,23 +1,5 @@
 #!/bin/bash
 
-echo "Cleaning up Ray environment..."
-
-# 1. Attempt to stop Ray processes
-ray stop --force 2>/dev/null
-
-# 2. Force delete temporary files
-# Defined custom temp directory: ~/ray_temp
-RAY_TEMP_DIR="$HOME/ray_temp"
-
-if [ -d "$RAY_TEMP_DIR" ]; then
-    rm -rf "$RAY_TEMP_DIR"
-    echo "Deleted temporary files in $RAY_TEMP_DIR"
-else
-    echo "Directory $RAY_TEMP_DIR does not exist, skipping deletion."
-fi
-
-echo "Environment cleanup finished. Starting training..."
-
 set -x
 
 export PYTHONUNBUFFERED=1

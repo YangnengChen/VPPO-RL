@@ -15,14 +15,35 @@ TARGET_SCRIPT="examples/configs/train_ours_7b.sh"
 # (这有助于在网络临时中断时等待其恢复)
 DELAY=3
 
+
+PID_TO_WAIT_FOR="252264" 
+
+WAIT_INTERVAL=3
+
+
+if [ -n "$PID_TO_WAIT_FOR" ]; then
+    echo "-----------------------------------------------------"
+    echo "Pre-run check: Waiting for PID $PID_TO_WAIT_FOR to finish..."
+    
+
+    while kill -0 "$PID_TO_WAIT_FOR" 2>/dev/null; do
+        echo "Process $PID_TO_WAIT_FOR is still running. Waiting $WAIT_INTERVAL seconds..."
+        sleep $WAIT_INTERVAL
+    done
+    
+    echo "Process $PID_TO_WAIT_FOR has finished."
+    echo "-----------------------------------------------------"
+else
+    echo "No pre-wait PID specified. Starting immediately."
+fi
+
+
+
 echo "Starting auto-retry wrapper for: $TARGET_SCRIPT"
 echo "Will retry every $DELAY seconds upon failure."
 echo "-----------------------------------------------------"
 
-# 3. 核心循环
-# 'while ! command' 意味着 "当 command 失败时 (退出码非0)，继续循环"
 while ! bash "$TARGET_SCRIPT"; do
-    # $? 变量保存了上一个命令 (即 $TARGET_SCRIPT) 的退出状态码
     EXIT_CODE=$?
     
     echo "-----------------------------------------------------"
@@ -30,13 +51,9 @@ while ! bash "$TARGET_SCRIPT"; do
     echo "Retrying in $DELAY seconds..."
     echo "-----------------------------------------------------"
     
-    # 等待 $DELAY 秒
     sleep $DELAY
 done
 
-# 4. 成功退出
-# 只有当 'bash "$TARGET_SCRIPT"' 成功 (退出码为 0) 时，
-# 'while !' 循环才会终止，并执行到这里。
 echo "-----------------------------------------------------"
 echo "$TARGET_SCRIPT completed successfully."
 echo "Wrapper script finished."

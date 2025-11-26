@@ -26,9 +26,9 @@ entropy_penalty_coef=0.0
 clip_ratio_high=0.28
 loss_avg_mode=token
 
-L_SAFE_STATIC=600
+
 use_entopy_advantage_shaping=true
-entropy_alpha=0.4
+entropy_alpha=0.6
 entropy_kappa=2.0
 
 
@@ -37,7 +37,7 @@ FORMAT_PROMPT="examples/format_prompt/math_format_perception.jinja"
 # REWARD_FUNCTION="examples/reward_function/math.py:compute_score_wo_format"
 REWARD_FUNCTION="examples/reward_function/math.py:compute_score_wo_format_length_limit"
 
-EXP_NAME="length_limit_${L_SAFE_STATIC}_loss_avg_mode_${loss_avg_mode}_clip_ratio_high${clip_ratio_high}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}_use_entopy_advantage_shaping_${use_entopy_advantage_shaping}_alpha_${entropy_alpha}_kappa_${entropy_kappa}"
+EXP_NAME="length_limit_600_loss_avg_mode_${loss_avg_mode}_clip_ratio_high${clip_ratio_high}_ep${TOTAL_EPOCHES}_rollout${rollout}_mini${MINI_ROLLOUT_BATCH_SIZE}_use_entopy_advantage_shaping_${use_entopy_advantage_shaping}_alpha_${entropy_alpha}_kappa_${entropy_kappa}"
 
 CONGI_FILE="examples/configs/config.yaml"
 TRAIN_FILE="/data3/cyn/datasets/PAPOGalaxy/PAPO_ViRL39K_train/"
@@ -76,4 +76,3 @@ CUDA_VISIBLE_DEVICES=${CUDA_IDS} python3 -m verl.trainer.main \
     worker.actor.use_entopy_advantage_shaping=${use_entopy_advantage_shaping} \
     worker.actor.entropy_alpha=${entropy_alpha} \
     worker.actor.entropy_kappa=${entropy_kappa} \
-    worker.reward.reward_function_kwargs.L_SAFE_STATIC=${L_SAFE_STATIC} \

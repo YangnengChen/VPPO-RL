@@ -69,82 +69,49 @@ def compute_score_wo_format(reward_inputs: List[Dict[str, Any]]) -> List[Dict[st
 import re
 from typing import List, Dict, Any
 
-# 假设 accuracy_reward 函数已经定义在别处
-# def accuracy_reward(response, ground_truth) -> float:
-#     # ... 实现 ...
-#     # 假设: acc=1 时返回 1.0, acc=0 时返回 0.0
-#     return 1.0 if is_correct else 0.0
+
 
 def compute_score_wo_format_length_limit(
     reward_inputs: List[Dict[str, Any]],
-    L_MAX_HARD_LIMIT: int = 2048,  # 预设的 L_max 硬上限
-    ALPHA_TOLERANCE: float = 0.5 # 动态容忍区比例 (例如 15%)
+    L_SAFE_STATIC: int = 512,    
+    L_MAX_HARD_LIMIT: int = 2048   
 ) -> List[Dict[str, float]]:
     """
-    计算包含 "动态容忍区SOP" (方案六) 的奖励分数。
-    这是一个更 "弱" 的长度限制。
     """
     if not isinstance(reward_inputs, list):
         raise ValueError("Please use `reward_type=batch` for math reward function.")
 
-    
-    intermediate_results = []
-    correct_lengths = []
+    if L_SAFE_STATIC >= L_MAX_HARD_LIMIT:
+        raise ValueError(f"L_SAFE_STATIC ({L_SAFE_STATIC}) >= L_MAX_HARD_LIMIT ({L_MAX_HARD_LIMIT})")
+        
+    denominator = L_MAX_HARD_LIMIT - L_SAFE_STATIC
+
+    scores = []
 
     for reward_input in reward_inputs:
         original_response = reward_input["response"]
-        response_length = len(original_response) # |y|
+        
+        response_length = reward_input['response_length']
+
         processed_response = re.sub(r"\s*(<|>|/)\s*", r"\1", original_response)
         accuracy_score = accuracy_reward(processed_response, reward_input["ground_truth"])
 
-        intermediate_results.append({
-            "accuracy": accuracy_score,
-            "length": response_length
-        })
-
-        if accuracy_score == 1.0:
-            correct_lengths.append(response_length)
-
-    
-    L_mean = 0.0
-    has_correct_samples = bool(correct_lengths)
-
-    if has_correct_samples:
-        L_mean = sum(correct_lengths) / len(correct_lengths)
-
-    L_safe_dynamic = L_mean * (1.0 + ALPHA_TOLERANCE)
-
-    
-    final_scores = []
-    for item in intermediate_results:
-        accuracy = item["accuracy"]
-        length = item["length"]
-        
         R_length = 0.0
 
-        if not has_correct_samples:
-            R_length = 0.0
-        elif length <= L_safe_dynamic:
+        if response_length <= L_SAFE_STATIC:
             R_length = 0.0
         else:
             
-            if L_safe_dynamic >= L_MAX_HARD_LIMIT:
-                R_length = -1.0
-            else:
-                denominator = L_MAX_HARD_LIMIT - L_safe_dynamic
-                
-                penalty = (L_safe_dynamic - length) / denominator
-                
-                R_length = max(penalty, -1.0)
-        
-        overall_score = accuracy + R_length
-        
-        final_scores.append({
+            penalty = (L_SAFE_STATIC - response_length) / denominator
+            
+            R_length = max(penalty, -1.0)
+            
+        overall_score = accuracy_score + R_length
+
+        scores.append({
             "overall": overall_score,
-            "accuracy": accuracy,
-            "R_length": R_length,
-            "L_mean": L_mean, 
-            "L_safe_dynamic": L_safe_dynamic
+            "accuracy": accuracy_score,
+            "R_length": R_length
         })
 
-    return final_scores
+    return scores
